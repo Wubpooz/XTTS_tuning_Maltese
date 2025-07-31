@@ -341,5 +341,6 @@ XTTS Implementation:
 ## Further improvements
 - Auto-split larger audio files into smaller segments.
 - Use Whisper to transcribe the audio files, thus generating the dataset only from the audio files (large-v3 is better, medium is good and small for testing)
-- Use advanced settings like `min_audio_length` and `max_audio_length` to control the audio length, evaluation split, and model precision (mixed, fp32, fp16).
+- Use advanced settings like `min_audio_length` and `max_audio_length` to control the audio length, evaluation split, and model precision (mixed, fp32, fp16)
+- GUI with spectrogram [ExtractTTSSpectrogram](/notebooks/ExtractTTSpectrogram.ipynb)
 
