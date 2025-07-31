@@ -650,11 +650,15 @@ class VoiceBpeTokenizer:
         lang = "zh-cn" if lang == "zh" else lang
         txt = f"[{lang}]{txt}"
         txt = txt.replace(" ", "[SPACE]")
+        if self.tokenizer is None:
+            raise ValueError("Tokenizer is not initialized. Please provide a valid vocab_file when creating VoiceBpeTokenizer.")
         return self.tokenizer.encode(txt).ids
 
     def decode(self, seq):
         if isinstance(seq, torch.Tensor):
             seq = seq.cpu().numpy()
+        if self.tokenizer is None:
+            raise ValueError("Tokenizer is not initialized. Please provide a valid vocab_file when creating VoiceBpeTokenizer.")
         txt = self.tokenizer.decode(seq, skip_special_tokens=False).replace(" ", "")
         txt = txt.replace("[SPACE]", " ")
         txt = txt.replace("[STOP]", "")
@@ -662,9 +666,13 @@ class VoiceBpeTokenizer:
         return txt
 
     def __len__(self):
+        if self.tokenizer is None:
+            raise ValueError("Tokenizer is not initialized. Please provide a valid vocab_file when creating VoiceBpeTokenizer.")
         return self.tokenizer.get_vocab_size()
 
     def get_number_tokens(self):
+        if self.tokenizer is None:
+            raise ValueError("Tokenizer is not initialized. Please provide a valid vocab_file when creating VoiceBpeTokenizer.")
         return max(self.tokenizer.get_vocab().values()) + 1
 
 

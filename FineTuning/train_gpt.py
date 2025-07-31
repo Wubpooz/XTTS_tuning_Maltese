@@ -240,8 +240,8 @@ def train_gpt(metadatas, num_epochs, batch_size, grad_acumm,output_path, lr=5e-0
     run_description="""
         GPT XTTS training
         """,
-    config.dashboard_logger = DASHBOARD_LOGGER,
-    logger_uri=LOGGER_URI,
+    dashboard_logger=DASHBOARD_LOGGER,
+    logger_uri=LOGGER_URI, # type: ignore
     audio=audio_config,
     batch_size=BATCH_SIZE,
     batch_group_size=48,
