@@ -36,7 +36,7 @@ You can optionally disable sentence splitting for better coherence but more VRAM
 
 
 ### Manual Inference
-If you want to be able to `load_checkpoint` with `use_deepspeed=True` and **enjoy the speedup**, you need to install deepspeed first.  
+If you want to be able to `load_checkpoint` with `use_deepspeed=True` and enjoy the speedup, you need to install deepspeed first.  
 ```console
 pip install deepspeed==0.10.3
 ```
@@ -122,6 +122,19 @@ A recipe for `XTTS_v2` GPT encoder training using `LJSpeech` dataset is [availab
 You need to change the fields of the `BaseDatasetConfig` to match your dataset and then update `GPTArgs` and `GPTTrainerConfig` fields as you need. By default, it will use the same parameters that XTTS v1.1 model was trained with. To speed up the model convergence, as default, it will also download the XTTS v1.1 checkpoint and load it.  
 
 After training, run inference as described in the [Inference](#inference) section.
+
+
+### Byte-Pair Encoding (BPE) Tokenization
+Byte-Pair Encoding (BPE) is a tokenization technique that breaks text into subword units, making it easier for the model to handle unique or complex words, accents, and phonetic variations.
+Benefits of BPE Tokenization:
+- Handles Unknown Words: Breaks down uncommon words, allowing the model to learn parts of words it hasn’t encountered before.
+- Improves Accuracy with Accents and Dialects: By encoding subword units, the model can better capture pronunciation nuances found in accents or dialects.
+- Supports Multi-Language Training: BPE helps the model generalize across languages by creating shared subword representations.
+XTTS Implementation:
+   - XTTS models use a specialized tokenizer with support for multiple languages and unique speech patterns.
+   - The script also includes options to customize token frequency thresholds, vocabulary size, and stop tokens.
+
+
 
 [Source](/docs/source/models/xtts.md)
 
@@ -237,8 +250,77 @@ After training, run inference as described in the [Inference](#inference) sectio
           --coqpit.lr 0.00001
       ```
 
-
 [Source](/docs/source/finetuning.md)
+
+
+#### Multiple Voice Training
+1. Initial Voice Training:
+   - Start with a base model and finetune it on the first voice.
+   - Export the trained model as a checkpoint.
+2. Additional Voices:
+   - Use the checkpoint from the previous training as a base.
+   - Finetune the model with the new voice data, gradually adapting it to recognize multiple speakers.
+3. Balancing Training Time:
+   - Divide training time across voices for even quality.
+   - Monitor each voice to ensure the model maintains quality for all trained voices.
+
+
+
+&nbsp;  
+### HyperParameters
+   - Epochs: How many training cycles, start with 10 (More epochs = better results but longer training).
+     - Use learning rate scheduling (e.g., cosine annealing or exponential decay) for better results over long training runs:
+       - Cosine Annealing with Warm Restarts:
+         - Reduces the learning rate in cycles to explore different minima.
+         - Ideal for long training runs where you want the model to avoid settling on a local minimum.
+         - Visual Representation:
+           ```
+           Learning Rate
+                ^
+           η_max|   /\    /\    /\
+                |  /  \  /  \  /  \
+                | /    \/    \/    \
+           η_min|_____________________> Time
+           ```
+      - Step Decay
+      - Exponential Decay
+   - Batch Size: Samples processed at once, start with 4 and reduce to 2 if out of memory but can be increased to 32 or 64.
+     - If VRAM is limited, use gradient accumulation to simulate larger batch sizes (batch_size = 8, gradient_accumulation_steps = 4 => effective batch size = 32)
+   - Learning Rate: How fast the model learns, start with 5e-6 (Lower = more stable but slower)
+   - Optimizer: How the model updates, AdamW (default) works best
+   - Scheduler: How the learning rate changes, CosineAnnealingWarmRestarts works best
+
+
+&nbsp;  
+### Notes
+- Requirements: GPU with 16GB+ VRAM and 24GB+ RAM, 30G+ free storage.
+- Use a small learning rate to avoid overfitting and forgetting the training data.
+  - 1e-6 to 5e-6: Stable, slow learning.
+  - 1e-5: Balanced, suitable for most cases.
+  - 1e-3 and higher: Fast but can be unstable.
+- Monitoring progress: loss values should generally decrease consistently over epochs.
+- Regular Monitoring: Use tools like `nvidia-smi` (for NVIDIA GPUs) to monitor GPU memory usage in real time. This helps identify if adjustments are needed mid-training.
+- Overtraining: Loss values plateau or start increasing, indicating overtraining => reduce learning rate, epochs or early stopping.
+- Check for GPU Memory Fragmentation: Restart training if you notice fragmentation from long sessions, as this can sometimes free up memory.
+- Garbage Collection in PyTorch: utilizes Python’s `gc` (garbage collection) module to manage memory.
+
+
+#### Strategies for Managing Minima
+- Batch Size:
+  - Small Batch Sizes (4–8): Introduce more randomness into the training process, which can help the model escape poor local minima. Smaller batches, however, may increase training noise and slow down convergence.
+  - Large Batch Sizes (32–64): Provide stability, helping the model converge more predictably. Larger batches are less likely to "escape" local minima, but they can yield sharper minima, which may lead to overfitting.
+- Learning Rate:
+  - High Learning Rate: Speeds up training but can cause the model to "jump over" good minima, leading to instability or convergence in a suboptimal local minimum.
+  - Low Learning Rate: Helps the model make finer adjustments and settle in more favorable minima. It can be beneficial to start with a high learning rate and decrease it over time, often through a scheduler.
+- Gradient Accumulation and Gradient Clipping:
+  - Gradient Accumulation: Accumulates gradients over multiple smaller batches, simulating a larger batch size while still allowing variability. This helps the model balance between escaping poor minima and achieving stable convergence.
+  - Gradient Clipping: Limits the size of gradients to prevent large, erratic updates. This can help stabilize training when the model is near a minimum, reducing the chance of "overshooting" it.
+- Early Stopping: Set a condition to stop training when the model stops improving for a set number of epochs. Early stopping can prevent the model from descending too far into overfitting, keeping it in a minimum that generalizes better.
+- Warm Restarts:
+  A technique that resets the learning rate at intervals, allowing the model to re-explore the loss landscape:
+  - Warm restarts encourage the model to "escape" poor minima by periodically increasing the learning rate, then lowering it again as training continues.
+  - Useful in longer training runs to avoid the model settling in sharp, potentially overfitted minima.
+
 
 
 &nbsp;  
@@ -251,3 +333,13 @@ After training, run inference as described in the [Inference](#inference) sectio
 
 [Source](/docs/source/implementing_a_new_language_frontend.md)
 [Example](/FineTuning/coqui-ai-TTS-newlanguage.png)
+
+
+
+&nbsp;  
+&nbsp;  
+## Further improvements
+- Auto-split larger audio files into smaller segments.
+- Use Whisper to transcribe the audio files, thus generating the dataset only from the audio files (large-v3 is better, medium is good and small for testing)
+- Use advanced settings like `min_audio_length` and `max_audio_length` to control the audio length, evaluation split, and model precision (mixed, fp32, fp16).
+
