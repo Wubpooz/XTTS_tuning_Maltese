@@ -1,0 +1,253 @@
+# Adding Maltese to XTTS
+## XTTS Model
+ⓍTTS is a super cool Text-to-Speech model that lets you clone voices in different languages by using just a quick 3-second audio clip. Built on the 🐢Tortoise, ⓍTTS has important model changes that make cross-language voice cloning and multi-lingual speech generation super easy.  
+There is no need for an excessive amount of training data that spans countless hours.  
+This is the same model that powers [Coqui Studio](https://coqui.ai/), and [Coqui API](https://docs.coqui.ai/docs), however we apply a few tricks to make it faster and support streaming inference.  
+
+### Features
+- Voice cloning.
+- Cross-language voice cloning.
+- Multi-lingual speech generation.
+- 24khz sampling rate.
+- Streaming inference with < 200ms latency. (See [Streaming inference](#streaming-inference))
+- Fine-tuning support. (See [Training](#training))
+- Support for 16 languages: English (en), Spanish (es), French (fr), German (de), Italian (it), Portuguese (pt), Polish (pl), Turkish (tr), Russian (ru), Dutch (nl), Czech (cs), Arabic (ar), Chinese (zh-cn), Japanese (ja), Hungarian (hu) and Korean (ko).
+
+### License
+This model is licensed under [Coqui Public Model License](https://coqui.ai/cpml).
+
+
+### Inference
+```python
+from TTS.api import TTS
+tts = TTS("tts_models/multilingual/multi-dataset/xtts_v2", gpu=True)
+
+# generate speech by cloning a voice using default settings
+tts.tts_to_file(text="It took me quite a long time to develop a voice, and now that I have it I'm not going to be silent.",
+                file_path="output.wav",
+                speaker_wav=["/path/to/target/speaker.wav"], 
+                # Or ["/path/to/target/speaker.wav", "/path/to/target/speaker_2.wav", "/path/to/target/speaker_3.wav"] for multiple references
+                # Or "target_speaker_name" for Coqui speakers
+                language="en",
+                split_sentences=True
+                )
+```
+You can optionally disable sentence splitting for better coherence but more VRAM and possibly hitting models context length limit.  
+
+
+### Manual Inference
+If you want to be able to `load_checkpoint` with `use_deepspeed=True` and **enjoy the speedup**, you need to install deepspeed first.  
+```console
+pip install deepspeed==0.10.3
+```
+
+##### inference parameters
+- `text`: The text to be synthesized.
+- `language`: The language of the text to be synthesized.
+- `gpt_cond_latent`: The latent vector you get with get_conditioning_latents. (You can cache for faster inference with same speaker)
+- `speaker_embedding`: The speaker embedding you get with get_conditioning_latents. (You can cache for faster inference with same speaker)
+- `temperature`: The softmax temperature of the autoregressive model. Defaults to 0.65.
+- `length_penalty`: A length penalty applied to the autoregressive decoder. Higher settings causes the model to produce more terse outputs. Defaults to 1.0.
+- `repetition_penalty`: A penalty that prevents the autoregressive decoder from repeating itself during decoding. Can be used to reduce the incidence of long silences or "uhhhhhhs", etc. Defaults to 2.0.
+- `top_k`: Lower values mean the decoder produces more "likely" (aka boring) outputs. Defaults to 50.
+- `top_p`: Lower values mean the decoder produces more "likely" (aka boring) outputs. Defaults to 0.8.
+- `speed`: The speed rate of the generated audio. Defaults to 1.0. (can produce artifacts if far from 1.0)
+- `enable_text_splitting`: Whether to split the text into sentences and generate audio for each sentence. It allows you to have infinite input length but might loose important context between sentences. Defaults to True.
+
+
+##### Inference
+```python
+import os
+import torch
+import torchaudio
+from TTS.tts.configs.xtts_config import XttsConfig
+from TTS.tts.models.xtts import Xtts
+
+# use your values
+CONFIG_PATH = "/path/to/xtts/config.json"
+XTTS_CHECKPOINT = "/path/to/xtts/"
+TOKENIZER_PATH = "path/to/xtts/vocab.json"
+SPEAKER_REFERENCE = "reference.wav"
+OUTPUT_WAV_PATH = "xtts.wav"
+
+print("Loading model...")
+config = XttsConfig()
+config.load_json(CONFIG_PATH)
+model = Xtts.init_from_config(config)
+model.load_checkpoint(config, checkpoint_path=XTTS_CHECKPOINT, vocab_path=TOKENIZER_PATH, use_deepspeed=False)
+model.cuda()
+
+print("Computing speaker latents...")
+gpt_cond_latent, speaker_embedding = model.get_conditioning_latents(audio_path=[SPEAKER_REFERENCE])
+
+print("Inference...")
+out = model.inference(
+    "It took me quite a long time to develop a voice and now that I have it I am not going to be silent.",
+    "en",
+    gpt_cond_latent,
+    speaker_embedding,
+    temperature=0.7, # Add custom parameters here
+)
+
+# Use this commented chunk for streaming
+# wav_chuncks = []
+# for i, chunk in enumerate(chunks):
+#     if i == 0:
+#         print(f"Time to first chunck: {time.time() - t0}")
+#     print(f"Received chunk {i} of audio length {chunk.shape[-1]}")
+#     wav_chuncks.append(chunk)
+# wav = torch.cat(wav_chuncks, dim=0)
+
+torchaudio.save(OUTPUT_WAV_PATH, torch.tensor(out["wav"]).unsqueeze(0), 24000)
+```
+
+
+
+### Training
+#### Run demo on Colab
+The Colab Notebook is available [here](https://colab.research.google.com/drive/1GiI4_X724M8q2W-zZ-jXo7cWTV7RfaH-?usp=sharing).  
+
+1. Open the Colab notebook and start the demo by runining the first two cells (ignore pip install errors in the first one).
+2. Click on the link "Running on public URL:" on the second cell output.
+3. On the first Tab (1 - Data processing) you need to select the audio file or files, wait for upload, and then click on the button "Step 1 - Create dataset" and then wait until the dataset processing is done.
+4. Soon as the dataset processing is done you need to go to the second Tab (2 - Fine-tuning XTTS Encoder) and press the button "Step 2 - Run the training" and then wait until the training is finished. Note that it can take up to 40 minutes.
+5. Soon the training is done you can go to the third Tab (3 - Inference) and then click on the button "Step 3 - Load Fine-tuned XTTS model" and wait until the fine-tuned model is loaded. Then you can do the inference on the model by clicking on the button "Step 4 - Inference".
+
+To learn how to use this Colab Notebook please check the [tutorial video](https://www.youtube.com/watch?v=8tpDiiouGxc&feature=youtu.be).  
+
+
+#### Advanced training
+A recipe for `XTTS_v2` GPT encoder training using `LJSpeech` dataset is [available](https://github.com/coqui-ai/TTS/tree/dev/recipes/ljspeech/xtts_v1/train_gpt_xtts.py).  
+
+You need to change the fields of the `BaseDatasetConfig` to match your dataset and then update `GPTArgs` and `GPTTrainerConfig` fields as you need. By default, it will use the same parameters that XTTS v1.1 model was trained with. To speed up the model convergence, as default, it will also download the XTTS v1.1 checkpoint and load it.  
+
+After training, run inference as described in the [Inference](#inference) section.
+
+[Source](/docs/source/models/xtts.md)
+
+
+&nbsp;  
+&nbsp;  
+## Finetuning
+### Steps
+1) Setup your dataset
+   1) [Check the quality of your dataset](/docs/source/what_makes_a_good_dataset.md)
+      - Gaussian like distribution on clip and text lengths
+      - Mistake free: remove any wrong or broken files, check annotations, compare transcript and audio length.
+      - Noise free: background noise might lead your model to struggle, especially for a good alignment.
+      - Compatible tone and pitch among voice clips: for instance, if you are using audiobook recordings for your project, it might have impersonations for different characters in the book. These differences between samples downgrade the model performance.
+      - Good phoneme coverage.
+      - Naturalness of recordings.
+      - Quantization level of the clips: if your dataset has a very high bit-rate, that might cause slow data-load time and consequently slow training. It is better to reduce the sample-rate of your dataset to around 16000-22050.
+  
+      There are 2 notebooks to help you determine the quality of the dataset: [CheckSpectrograms](/docs/notebooks/CheckSpectrograms.ipynb) and [AnalyzeDataset](/docs/notebooks/AnalyzeDataset.ipynb). The first one measures the noise level and find good audio processing parameters. The second one checks the distribution of clip and text lengths.
+
+   2) [Format your dataset](/docs/source/formatting_dataset.md)
+      - The speech must be divided into audio clips and each clip needs transcription. It is important to use a lossless audio file format to prevent compression artifacts. We recommend using `wav` file format.  
+      - We recommend the following format delimited by `|`. In the following example, `audio1`, `audio2` refer to files `audio1.wav`, `audio2.wav` etc.
+        ```
+        # metadata.txt
+
+        audio1|This is my sentence.|This is my sentence.
+        audio2|1469 and 1470|fourteen sixty-nine and fourteen seventy
+        audio3|It'll be $16 sir.|It'll be sixteen dollars sir.
+        ...
+        ```
+        *If you don't have normalized transcriptions, you can use the same transcription for both columns. If it's your case, we recommend to use normalization later in the pipeline, either in the text cleaner or in the phonemizer.*
+      
+      - The dataset structure should be the following:
+        ```
+        /MyTTSDataset
+          |
+          | -> metadata.txt
+          | -> /wavs
+            | -> audio1.wav
+            | -> audio2.wav
+            | ...
+        ```
+        This is taken from the [LJSpeech](https://keithito.com/LJ-Speech-Dataset/) dataset.
+
+    3) Using Your Dataset
+        After you collect and format your dataset, you need to check two things. Whether you need a `formatter` and a `text_cleaner`. The `formatter` loads the text file (created above) as a list and the `text_cleaner` performs a sequence of text normalization operations that converts the raw text into the spoken representation (e.g. converting numbers to text, acronyms, and symbols to the spoken format):  
+          - If you use a different dataset format than the LJSpeech or the other public datasets that 🐸TTS supports, then you need to write your own `formatter`.  
+            What you get out of a `formatter` is a `List[Dict]` in the following format:
+            ```
+            >>> formatter(metafile_path)
+            [
+                {"audio_file":"audio1.wav", "text":"This is my sentence.", "speaker_name":"MyDataset", "language": "lang_code"},
+                {"audio_file":"audio1.wav", "text":"This is maybe a sentence.", "speaker_name":"MyDataset", "language": "lang_code"},
+                ...
+            ]
+            ```
+            Each sub-list is parsed as ```{"<filename>", "<transcription>", "<speaker_name">]```. ```<speaker_name>``` is the dataset name for single speaker datasets and it is mainly used in the multi-speaker models to map the speaker of the each sample. But for now, we only focus on single speaker datasets.  
+
+            The purpose of a `formatter` is to parse your manifest file and load the audio file paths and transcriptions.  
+            Then, the output is passed to the `Dataset`. It computes features from the audio signals, calls text normalization routines, and converts raw text to
+            phonemes if needed.  
+          - If your dataset is in a new language or it needs special normalization steps, then you need a new `text_cleaner`.
+
+    4) Loading your dataset
+        ```python
+        from TTS.tts.datasets import load_tts_samples
+
+        # custom formatter implementation
+        def formatter(root_path, manifest_file, **kwargs):  # pylint: disable=unused-argument
+          """Assumes each line as ```<filename>|<transcription>```
+          """
+          txt_file = os.path.join(root_path, manifest_file)
+          items = []
+          speaker_name = "my_speaker"
+          with open(txt_file, "r", encoding="utf-8") as ttf:
+            for line in ttf:
+              cols = line.split("|")
+              wav_file = os.path.join(root_path, "wavs", cols[0])
+              text = cols[1]
+              items.append({"text":text, "audio_file":wav_file, "speaker_name":speaker_name, "root_path": root_path})
+          return items
+
+        train_samples, eval_samples = load_tts_samples(dataset_config, eval_split=True, formatter=formatter)
+        ```
+
+        See `TTS.tts.datasets.TTSDataset`, a generic `Dataset` implementation for the `tts` models.  
+        See `TTS.vocoder.datasets.*`, for different `Dataset` implementations for the `vocoder` models.  
+        See `TTS.utils.audio.AudioProcessor` that includes all the audio processing and feature extraction functions used in a `Dataset` implementation. Feel free to add things as you need.  
+
+2) Download the xtts_v2 model: `tts --model_name tts_models/multilingual/multi-dataset/xtts_v2`
+
+3) Setup the model config for fine-tuning:
+    - Edit the fields in the ```config.json``` file if you want to use ```TTS/bin/train_tts.py``` to train the model.
+    - Edit the fields in one of the training scripts in the ```recipes``` directory if you want to use python.
+    - Use the command-line arguments to override the fields like ```--coqpit.lr 0.00001``` to change the learning rate.
+     Some of the important fields are `datasets`, `run_name`, `output_path`, `lr`, and `audio` (audio characteristics).
+
+4) Start fine-tuning, use restore_path to specify the path to the pre-trained model, here are the commands for the previous cases respectively:
+    - ```bash
+      CUDA_VISIBLE_DEVICES="0" python recipes/ljspeech/glow_tts/train_glowtts.py \
+          --restore_path  /home/ubuntu/.local/share/tts/tts_models--en--ljspeech--glow-tts/model_file.pth
+      ```
+    - ```bash
+      CUDA_VISIBLE_DEVICES="0" python TTS/bin/train_tts.py \
+          --config_path  /home/ubuntu/.local/share/tts/tts_models--en--ljspeech--glow-tts/config.json \
+          --restore_path  /home/ubuntu/.local/share/tts/tts_models--en--ljspeech--glow-tts/model_file.pth
+      ```
+    - ```bash
+      CUDA_VISIBLE_DEVICES="0" python recipes/ljspeech/glow_tts/train_glowtts.py \
+          --restore_path  /home/ubuntu/.local/share/tts/tts_models--en--ljspeech--glow-tts/model_file.pth
+          --coqpit.run_name "glow-tts-finetune" \
+          --coqpit.lr 0.00001
+      ```
+
+
+[Source](/docs/source/finetuning.md)
+
+
+&nbsp;  
+&nbsp;  
+## Front-end
+### Steps
+1) Create a new folder with the utilities for processing the text input in the `TTS.tts.utils.text` folder. `TTS.tts.utils.text.phonemizers` contains the main phonemizer for a language. This is the class that uses the utilities from the previous step and used to convert the text to phonemes or graphemes for the model.
+2) After you implement your phonemizer, you need to add it to the `TTS/tts/utils/text/phonemizers/__init__.py` to be able to map the language code in the model config - `config.phoneme_language` - to the phonemizer class and initiate the phonemizer automatically.
+3) You should also add tests to `tests/text_tests` if you want to make a PR.
+
+[Source](/docs/source/implementing_a_new_language_frontend.md)
+[Example](/FineTuning/coqui-ai-TTS-newlanguage.png)
