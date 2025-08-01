@@ -344,3 +344,16 @@ XTTS Implementation:
 - Use advanced settings like `min_audio_length` and `max_audio_length` to control the audio length, evaluation split, and model precision (mixed, fp32, fp16)
 - GUI with spectrogram [ExtractTTSSpectrogram](/notebooks/ExtractTTSpectrogram.ipynb)
 
+
+
+
+
+
+
+
+
+# report on the model, what can be trained, how to train + evaluation, dataset etc + give my Zotero lib
+# kaggle gpu, sagemaker, Azure
+
+
+
