@@ -86,14 +86,13 @@ from tokenizers.trainers import BpeTrainer
 #         print(f" > Loading custom model: {XTTS_CHECKPOINT}")
 #     else:
 #         raise ValueError(f"Error: The specified custom model is not a valid .pth file: {custom_model}")
-def download(output_path: str, version: str = "main", custom_model: str = "", custom_tokenizer: str = ""):
+def download(output_path: str, version: str = "main", custom_model: str = ""):
   """Download the XTTS model files and prepare the environment for training or inference.
 
   Args:
       output_path (str): Path to the output directory. They will be saved in a subdirectory named "models/<version>" within this path.
       version (str): Version of the XTTS model to download. Default is "main".
       custom_model (str): Path to a custom model checkpoint (.pth file) to use instead of the default XTTS model.
-      custom_tokenizer (str): Path to a custom tokenizer file (.json) to use instead of the default tokenizer.
   Raises:
       ValueError: If the custom model is not a valid .pth file.
   """
@@ -514,6 +513,8 @@ def inference(xtts_checkpoint, xtts_config, xtts_vocab, tts_text, speaker_audio_
 
 # ========================== CLI Parser ==========================
 def create_xtts_trainer_parser():
+  """Create a command-line argument parser for the XTTS Trainer.
+  """
   parser = argparse.ArgumentParser(description="Arguments for XTTS Trainer")
   parser.add_argument("--output_path", type=str, required=True, help="Path to pretrained + checkpoint model")
   parser.add_argument("--metadatas", nargs='+', type=str, required=True, help="train_csv_path,eval_csv_path,language")
@@ -528,16 +529,15 @@ def create_xtts_trainer_parser():
   parser.add_argument("--custom_model", type=str, default="", help="Path to custom model checkpoint (.pth file)")
   parser.add_argument("--version", type=str, default="main", help="XTTS version to use (default: main)")
   parser.add_argument("--multi_gpu", action='store_true', help="Use multi-GPU training")
+  parser.add_argument("--metadata_path", type=str, required=True, help="Path to a single metadata file for tokenizer training.")
+  parser.add_argument("--language", type=str, required=True, help="Language code for the new language (e.g., 'mt').")
+  parser.add_argument("--extended_vocab_size", type=int, default=2000, help="Vocabulary size for the new tokenizer.")
   # parser.add_argument("--no_deepspeed", action='store_true', help="Disable deepspeed for training")
   return parser
 
 
 if __name__ == "__main__":
   parser = create_xtts_trainer_parser()
-  parser.add_argument("--metadata_path", type=str, required=True, help="Path to a single metadata file for tokenizer training.")
-  parser.add_argument("--language", type=str, required=True, help="Language code for the new language (e.g., 'mt').")
-  parser.add_argument("--extended_vocab_size", type=int, default=2000, help="Vocabulary size for the new tokenizer.")
-  
   args = parser.parse_args()
 
   # Step 1: Download the base XTTS model files.
@@ -584,15 +584,16 @@ if __name__ == "__main__":
 
 
   run_inference = input("Do you want to run inference? (y/n): ").strip().lower()
+  inference_text = input("Enter the text for inference (or leave empty to use default): ").strip() # Hija test tal-mudell tat-taħdit il-ġdid tiegħi, il-lingwa Maltija hija interessanti! Esperimenti u testijiet huma importanti biex niskopru l-possibbiltajiet tat-taħdit.
   if run_inference == 'y':
     print("Running inference...")
     audio = inference(
       xtts_checkpoint=xtts_checkpoint,
       xtts_config=config,
       xtts_vocab=xtts_vocab,
-      tts_text="Hija test tal-mudell tat-taħdit il-ġdid tiegħi, il-lingwa Maltija hija interessanti! Esperimenti u testijiet huma importanti biex niskopru l-possibbiltajiet tat-taħdit.",
+      tts_text=inference_text,
       speaker_audio_file=speaker_ref,
-      lang="mt"
+      lang=args.language
     )
     print("Inference completed!")
     torchaudio.save(os.path.join(trainer_out_path, "output_maltese.wav"), audio, 24000)
@@ -615,11 +616,14 @@ if __name__ == "__main__":
 # pip install git+https://github.com/coqui-ai/TTS.git@dev
 # pip install -r requirements.txt
 
+
 # Download NLTK sentence tokenizer data
 # python -c "import nltk; nltk.download('punkt')"
 # XTTS uses spacy for some languages. Even if not "mt",
 # it's good practice to have the english model as a fallback.
 # python -m spacy download en_core_web_sm
+
+
 
 
 # CUDA_VISIBLE_DEVICES=0 python maltese_xtts.py \
@@ -632,7 +636,13 @@ if __name__ == "__main__":
 # --max_audio_length 255995 \
 # --weight_decay 1e-2 \
 # --lr 5e-6 \
-# --save_step 10000
+# --save_step 10000 \
+# --custom_model "" \
+# --version main \
+# --metadata_path datasets/metadata_train.csv \
+# --language mt \
+# --extended_vocab_size 2000 \
+
 
 
 
