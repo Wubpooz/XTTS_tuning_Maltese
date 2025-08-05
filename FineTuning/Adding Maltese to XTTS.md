@@ -552,6 +552,17 @@ tokenizer.save_model("maltese_tokenizer_dir")
 
 
 
+
+&nbsp;  
+&nbsp;  
+## Maltese data
+- [MASRI dev Dataset](https://huggingface.co/datasets/MLRS/masri_dev) - 1h of Maltese audio data
+- [Maltese Common Voice](https://huggingface.co/datasets/common_voice/mt) - 1,000+ hours of Maltese audio data
+- [Huge text Corpus](https://mlrs.research.um.edu.mt/index.php?page=corpora) and [HuggingFace](https://huggingface.co/datasets/MLRS/korpus_malti)
+- [Maltese tokenizer](https://github.com/UMSpeech/MASRI/blob/main/masri/tokenise/tokenise.py)
+- [Sentimental Maltese data](https://github.com/jerbarnes/typology_of_crosslingual/tree/master/data/sentiment/mt)
+
+
 ---
 
 
@@ -560,6 +571,7 @@ tokenizer.save_model("maltese_tokenizer_dir")
 ## TODO
 - report on the model, what can be trained, how to train + evaluation, dataset etc + give my Zotero lib
 - how to convert dataset ? what's needed ?
+- export to huggingface
 
 
 

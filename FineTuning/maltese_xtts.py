@@ -3,6 +3,7 @@
 This script is used to fine-tune the XTTS model for Maltese language and run inference on it.
 It includes functions for training the model and performing inference, as well as a command-line interface to
 control the process.
+Based on https://github.com/daswer123/xtts-webui/blob/main/scripts/utils/gpt_train.py & https://github.com/anhnh2002/XTTSv2-Finetuning-for-New-Languages/blob/main/train_gpt_xtts.py
 """
 
 # Inference imports
@@ -13,10 +14,11 @@ from tqdm import tqdm
 from TTS.tts.configs.xtts_config import XttsConfig
 from TTS.tts.models.xtts import Xtts
 
+
 # Training imports
 import os
 import gc
-from pathlib import Path
+import argparse
 
 from trainer import Trainer, TrainerArgs
 
@@ -25,8 +27,226 @@ from TTS.tts.datasets import load_tts_samples
 from TTS.tts.layers.xtts.trainer.gpt_trainer import GPTArgs, GPTTrainer, GPTTrainerConfig, XttsAudioConfig
 from TTS.utils.manage import ModelManager
 
-# import shutil
-import argparse
+
+# Tokenizer imports
+import json
+import pandas as pd
+from tokenizers import Tokenizer
+from tokenizers.models import BPE
+from tokenizers.pre_tokenizers import Whitespace
+from tokenizers.trainers import BpeTrainer
+
+
+# ========================== Data preparation ==========================
+#TODO
+
+
+
+
+# ========================== Download ==========================
+# CHECKPOINTS_OUT_PATH = os.path.join(output_path, "models", f"{version}")
+#   os.makedirs(CHECKPOINTS_OUT_PATH, exist_ok=True)
+
+
+#   # DVAE files
+#   DVAE_CHECKPOINT_LINK = "https://coqui.gateway.scarf.sh/hf-coqui/XTTS-v2/main/dvae.pth"
+#   MEL_NORM_LINK = "https://coqui.gateway.scarf.sh/hf-coqui/XTTS-v2/main/mel_stats.pth"
+#   DVAE_CHECKPOINT = os.path.join(CHECKPOINTS_OUT_PATH, os.path.basename(DVAE_CHECKPOINT_LINK))
+#   MEL_NORM_FILE = os.path.join(CHECKPOINTS_OUT_PATH, os.path.basename(MEL_NORM_LINK))
+
+#   if not os.path.isfile(DVAE_CHECKPOINT) or not os.path.isfile(MEL_NORM_FILE):
+#     print(" > Downloading DVAE files!")
+#     ModelManager._download_model_files([MEL_NORM_LINK, DVAE_CHECKPOINT_LINK], CHECKPOINTS_OUT_PATH, progress_bar=True)
+
+
+#   TOKENIZER_FILE_LINK = f"https://coqui.gateway.scarf.sh/hf-coqui/XTTS-v2/{version}/vocab.json"
+#   XTTS_CHECKPOINT_LINK = f"https://coqui.gateway.scarf.sh/hf-coqui/XTTS-v2/{version}/model.pth"
+#   # if useful, can add config and speakers files
+#   # XTTS_CONFIG_LINK = f"https://coqui.gateway.scarf.sh/hf-coqui/XTTS-v2/{version}/config.json"
+#   # XTTS_SPEAKER_LINK = f"https://coqui.gateway.scarf.sh/hf-coqui/XTTS-v2/main/speakers_xtts.pth"
+
+#   XTTS_CHECKPOINT = os.path.join(CHECKPOINTS_OUT_PATH, os.path.basename(XTTS_CHECKPOINT_LINK))
+#   TOKENIZER_FILE = os.path.join(CHECKPOINTS_OUT_PATH, os.path.basename(TOKENIZER_FILE_LINK))
+
+#   if not os.path.isfile(TOKENIZER_FILE) or not os.path.isfile(XTTS_CHECKPOINT):
+#     print(f" > Downloading XTTS v{version} files!")
+#     ModelManager._download_model_files([TOKENIZER_FILE_LINK, XTTS_CHECKPOINT_LINK], CHECKPOINTS_OUT_PATH, progress_bar=True) # private API
+
+#   # if useful, can transfer files to ready folder
+#   # READY_MODEL_PATH = os.path.join(output_path,"ready")
+#   # if not os.path.exists(READY_MODEL_PATH):
+#   #   os.makedirs(READY_MODEL_PATH)
+#   # NEW_TOKENIZER_FILE = os.path.join(READY_MODEL_PATH, "vocab.json")
+#   # shutil.copy(TOKENIZER_FILE, NEW_TOKENIZER_FILE)
+#   # TOKENIZER_FILE = NEW_TOKENIZER_FILE # vocab.json file
+
+#   if custom_model:
+#     if os.path.isfile(custom_model) and custom_model.endswith('.pth'):
+#         XTTS_CHECKPOINT = custom_model
+#         print(f" > Loading custom model: {XTTS_CHECKPOINT}")
+#     else:
+#         raise ValueError(f"Error: The specified custom model is not a valid .pth file: {custom_model}")
+def download(output_path: str, version: str = "main", custom_model: str = "", custom_tokenizer: str = ""):
+  """Download the XTTS model files and prepare the environment for training or inference.
+
+  Args:
+      output_path (str): Path to the output directory. They will be saved in a subdirectory named "models/<version>" within this path.
+      version (str): Version of the XTTS model to download. Default is "main".
+      custom_model (str): Path to a custom model checkpoint (.pth file) to use instead of the default XTTS model.
+      custom_tokenizer (str): Path to a custom tokenizer file (.json) to use instead of the default tokenizer.
+  Raises:
+      ValueError: If the custom model is not a valid .pth file.
+  """
+  CHECKPOINTS_OUT_PATH = os.path.join(output_path, "models", f"{version}")
+  os.makedirs(CHECKPOINTS_OUT_PATH, exist_ok=True)
+  
+  DVAE_CHECKPOINT_LINK = "https://coqui.gateway.scarf.sh/hf-coqui/XTTS-v2/main/dvae.pth"
+  MEL_NORM_LINK = "https://coqui.gateway.scarf.sh/hf-coqui/XTTS-v2/main/mel_stats.pth"
+  DVAE_CHECKPOINT = os.path.join(output_path, os.path.basename(DVAE_CHECKPOINT_LINK))
+  MEL_NORM_FILE = os.path.join(output_path, os.path.basename(MEL_NORM_LINK))
+
+  if not os.path.isfile(DVAE_CHECKPOINT) or not os.path.isfile(MEL_NORM_FILE):
+    print(" > Downloading DVAE files!")
+    ModelManager._download_model_files([MEL_NORM_LINK, DVAE_CHECKPOINT_LINK], output_path, progress_bar=True)
+
+
+  TOKENIZER_FILE_LINK = f"https://coqui.gateway.scarf.sh/hf-coqui/XTTS-v2/{version}/vocab.json"
+  XTTS_CHECKPOINT_LINK = f"https://coqui.gateway.scarf.sh/hf-coqui/XTTS-v2/{version}/model.pth"
+  XTTS_CONFIG_LINK = f"https://coqui.gateway.scarf.sh/hf-coqui/XTTS-v2/{version}/config.json"
+
+  XTTS_CHECKPOINT = os.path.join(output_path, os.path.basename(XTTS_CHECKPOINT_LINK))
+  TOKENIZER_FILE = os.path.join(output_path, os.path.basename(TOKENIZER_FILE_LINK))
+
+  if custom_model:
+    if os.path.isfile(custom_model) and custom_model.endswith('.pth'):
+      XTTS_CHECKPOINT = custom_model
+      print(f" > Loading custom model: {XTTS_CHECKPOINT}")
+    else:
+      raise ValueError(f"Error: The specified custom model is not a valid .pth file: {custom_model}")
+    
+
+  if not os.path.isfile(TOKENIZER_FILE) or not os.path.isfile(XTTS_CHECKPOINT):
+    print(f" > Downloading XTTS v{version} files!")
+    if not os.path.isfile(XTTS_CHECKPOINT):
+      ModelManager._download_model_files([TOKENIZER_FILE_LINK, XTTS_CONFIG_LINK, XTTS_CHECKPOINT_LINK], output_path, progress_bar=True) # private API
+    else:
+      ModelManager._download_model_files([TOKENIZER_FILE_LINK, XTTS_CONFIG_LINK], output_path, progress_bar=True) # don't download again if the checkpoint exists or when using a custom model
+
+
+  # if useful, can transfer files to ready folder
+  # READY_MODEL_PATH = os.path.join(output_path,"ready")
+  # if not os.path.exists(READY_MODEL_PATH):
+  #   os.makedirs(READY_MODEL_PATH)
+  # NEW_TOKENIZER_FILE = os.path.join(READY_MODEL_PATH, "vocab.json")
+  # shutil.copy(TOKENIZER_FILE, NEW_TOKENIZER_FILE)
+  # TOKENIZER_FILE = NEW_TOKENIZER_FILE # vocab.json file
+
+  return MEL_NORM_FILE, DVAE_CHECKPOINT, XTTS_CHECKPOINT, TOKENIZER_FILE
+
+
+
+
+
+# ========================== Tokenizer Extension ==========================
+def merge_tokenizers_preserve_ids(old_tokenizer_path, new_tokenizer_path, output_path):
+    """
+    Merges two vocabularies, preserving the token IDs from the old tokenizer
+    and adding new tokens from the new tokenizer.
+    """
+    print(f"Merging tokenizers from {old_tokenizer_path} and {new_tokenizer_path} into {output_path}")
+    with open(os.path.join(old_tokenizer_path, 'vocab.json')) as f:
+      old_vocab = json.load(f)
+      print(f"Old tokenizer vocabulary size: {len(old_vocab)}")
+    with open(os.path.join(new_tokenizer_path, 'vocab.json')) as f:
+      new_vocab = json.load(f)
+      print(f"New tokenizer vocabulary size: {len(new_vocab)}")
+
+    combined_vocab = old_vocab.copy()
+    new_id = max(old_vocab.values())
+    
+    # Iterate through the new vocabulary and add words not in the old one
+    for word, _ in new_vocab.items():
+      if word not in combined_vocab:
+        new_id += 1
+        combined_vocab[word] = new_id
+
+    print(f"Combined vocabulary size: {len(combined_vocab)}")
+    os.makedirs(output_path, exist_ok=True)
+    with open(os.path.join(output_path, 'vocab.json'), 'w') as fp:
+      json.dump(combined_vocab, fp, ensure_ascii=False, indent=2)
+    print(f"Combined vocabulary saved to {os.path.join(output_path, 'vocab.json')}")
+
+    return combined_vocab
+
+
+def extend_tokenizer(output_path: str, metadata_path: str, language: str, extended_vocab_size: int = 100000):
+  """Extends the XTTS tokenizer with new vocabulary from the provided metadata file.
+  This function combines the existing tokenizer with a new tokenizer trained on the provided metadata.
+  It saves the new tokenizer in a specified directory and updates the vocabulary to include new tokens.
+  Args:
+      output_path (str): Path to the output directory where the tokenizer files will be saved.
+      metadata_path (str): Path to the metadata file containing training data.
+      language (str): Language code for the new language to be added.
+      extended_vocab_size (int): Desired size of the extended vocabulary. Default is 100000.
+  """
+  root = os.path.join(output_path, "")
+  
+  old_tokenizer_path = os.path.join(root, "old_tokenizer/")
+  new_tokenizer_path = os.path.join(root, "new_tokenizer/")
+  merged_tokenizer_path = os.path.join(root, "merged_tokenizer/")
+
+  os.makedirs(old_tokenizer_path, exist_ok=True)
+  existing_tokenizer = Tokenizer.from_file(os.path.join(root, "vocab.json"))
+  existing_tokenizer.model.save(old_tokenizer_path)
+  print(f"Original tokenizer loaded with {len(existing_tokenizer.get_vocab())} tokens.")
+
+  traindf = pd.read_csv(metadata_path, sep="|")
+  texts = traindf.text.to_list()
+  new_tokenizer = Tokenizer(BPE())
+  new_tokenizer.pre_tokenizer = Whitespace() # type: ignore
+  trainer = BpeTrainer(special_tokens=[f"[{language}]"], vocab_size=extended_vocab_size) # type: ignore
+  print(f"Training new tokenizer with {len(texts)} texts...")
+  new_tokenizer.train_from_iterator(iter(texts), trainer=trainer)
+  new_tokenizer.add_special_tokens([f"[{language}]"])
+
+  print(f"New tokenizer trained with {len(new_tokenizer.get_vocab())} tokens.")
+  os.makedirs(new_tokenizer_path, exist_ok=True)
+  new_tokenizer.model.save(new_tokenizer_path)
+
+  merge_tokenizers_preserve_ids(old_tokenizer_path, new_tokenizer_path, merged_tokenizer_path)
+
+  # 4. Now, create the final tokenizer by combining the merged vocab with the new merges.txt
+  merged_vocab_file = os.path.join(merged_tokenizer_path, 'vocab.json')
+  new_merges_file = os.path.join(new_tokenizer_path, 'merges.txt')
+
+  final_tokenizer = Tokenizer(BPE.from_files(vocab=merged_vocab_file, merges=new_merges_file)) # type: ignore
+  final_tokenizer.pre_tokenizer = Whitespace() # type: ignore
+  final_tokenizer.add_special_tokens([f"[{language}]"])
+
+  # 5. Overwrite the original vocab.json with the new, extended one
+  final_tokenizer.save(os.path.join(root, "vocab.json"))
+
+  # Clean up temporary files
+  os.system(f'rm -rf {old_tokenizer_path} {new_tokenizer_path} {merged_tokenizer_path}')
+
+  print(f"Tokenizer has been successfully extended and saved to {os.path.join(root, 'vocab.json')}")
+
+
+
+def adjust_config(output_path: str, version: str, language: str):
+  """Adjust the XTTS configuration file to include the new language.
+  Args:
+      output_path (str): Path to the output directory where the config file is located (it will be appended with "/models/{version}/config.json"). 
+      version (str): Version of the XTTS model.
+      language (str): Language code for the new language to be added.
+  """
+  config_path = os.path.join(output_path, "models", f"{version}", "/config.json")
+  with open(config_path, "r") as f:
+    config = json.load(f)
+  config["languages"] += [language]
+  with open(config_path, 'w') as f:
+    json.dump(config, f, indent=4)
+
 
 
 # ========================== Training ==========================
@@ -51,15 +271,14 @@ def train_gpt(metadatas, num_epochs=100, batch_size=3, grad_acumm=84, output_pat
       multi_gpu (bool): Whether to use multi-GPU training. Default is False.
   Returns:
       tuple: Paths to the XTTS checkpoint, tokenizer file, config file, trainer output path, and speaker reference audio file.
-  """  
-
+  """
   RUN_NAME = "GPT_XTTS_FT"
   PROJECT_NAME = "XTTS_trainer_maltese"
   DASHBOARD_LOGGER = "tensorboard"
   LOGGER_URI = None
   num_workers = 8
 
-  OUT_PATH = os.path.join(output_path, "run", "training") #Path.cwd()
+  OUT_PATH = os.path.join(output_path, "run", "training") #Path.cwd()  #os.path.join(output_path, "run", "training")
   os.makedirs(OUT_PATH, exist_ok=True)
 
   # Training Parameters
@@ -68,6 +287,8 @@ def train_gpt(metadatas, num_epochs=100, batch_size=3, grad_acumm=84, output_pat
   BATCH_SIZE = batch_size
   GRAD_ACUMM_STEPS = grad_acumm
 
+  print(f" > Training XTTS model for Maltese with {len(metadatas)} datasets, {num_epochs} epochs, batch size {BATCH_SIZE}, grad_acumm {GRAD_ACUMM_STEPS}, output path: {OUT_PATH}")
+  print(" > Using the following datasets:")
   DATASETS_CONFIG_LIST = []
   for metadata in metadatas:
     train_csv, eval_csv, language = metadata.split(",")
@@ -78,57 +299,18 @@ def train_gpt(metadatas, num_epochs=100, batch_size=3, grad_acumm=84, output_pat
     config_dataset = BaseDatasetConfig(
       formatter="coqui",
       dataset_name="ft_dataset",
-      path=os.path.dirname(train_csv), #os.path.join(output_path, "dataset")
+      path=os.path.dirname(train_csv), #TODO os.path.join(output_path, "dataset")
       meta_file_train=os.path.basename(train_csv),
       meta_file_val=os.path.basename(eval_csv),
       language=language,
     )
     DATASETS_CONFIG_LIST.append(config_dataset)
 
-  CHECKPOINTS_OUT_PATH = os.path.join(output_path, "models", f"{version}")
-  os.makedirs(CHECKPOINTS_OUT_PATH, exist_ok=True)
+  print(" > Downloading XTTS model files...")
+  MEL_NORM_FILE, DVAE_CHECKPOINT, XTTS_CHECKPOINT, TOKENIZER_FILE = download(output_path, version=version, custom_model=custom_model)
+  print(" > XTTS model files downloaded successfully!")
 
-
-  # DVAE files
-  DVAE_CHECKPOINT_LINK = "https://coqui.gateway.scarf.sh/hf-coqui/XTTS-v2/main/dvae.pth"
-  MEL_NORM_LINK = "https://coqui.gateway.scarf.sh/hf-coqui/XTTS-v2/main/mel_stats.pth"
-  DVAE_CHECKPOINT = os.path.join(CHECKPOINTS_OUT_PATH, os.path.basename(DVAE_CHECKPOINT_LINK))
-  MEL_NORM_FILE = os.path.join(CHECKPOINTS_OUT_PATH, os.path.basename(MEL_NORM_LINK))
-
-  if not os.path.isfile(DVAE_CHECKPOINT) or not os.path.isfile(MEL_NORM_FILE):
-    print(" > Downloading DVAE files!")
-    ModelManager._download_model_files([MEL_NORM_LINK, DVAE_CHECKPOINT_LINK], CHECKPOINTS_OUT_PATH, progress_bar=True)
-
-
-
-  TOKENIZER_FILE_LINK = f"https://coqui.gateway.scarf.sh/hf-coqui/XTTS-v2/{version}/vocab.json"
-  XTTS_CHECKPOINT_LINK = f"https://coqui.gateway.scarf.sh/hf-coqui/XTTS-v2/{version}/model.pth"
-  # if useful, can add config and speakers files
-  # XTTS_CONFIG_LINK = f"https://coqui.gateway.scarf.sh/hf-coqui/XTTS-v2/{version}/config.json"
-  # XTTS_SPEAKER_LINK = f"https://coqui.gateway.scarf.sh/hf-coqui/XTTS-v2/main/speakers_xtts.pth"
-
-  XTTS_CHECKPOINT = os.path.join(CHECKPOINTS_OUT_PATH, os.path.basename(XTTS_CHECKPOINT_LINK))
-  TOKENIZER_FILE = os.path.join(CHECKPOINTS_OUT_PATH, os.path.basename(TOKENIZER_FILE_LINK))
-
-  if not os.path.isfile(TOKENIZER_FILE) or not os.path.isfile(XTTS_CHECKPOINT):
-    print(f" > Downloading XTTS v{version} files!")
-    ModelManager._download_model_files([TOKENIZER_FILE_LINK, XTTS_CHECKPOINT_LINK], CHECKPOINTS_OUT_PATH, progress_bar=True) # private API
-
-  # if useful, can transfer files to ready folder
-  # READY_MODEL_PATH = os.path.join(output_path,"ready")
-  # if not os.path.exists(READY_MODEL_PATH):
-  #   os.makedirs(READY_MODEL_PATH)
-  # NEW_TOKENIZER_FILE = os.path.join(READY_MODEL_PATH, "vocab.json")
-  # shutil.copy(TOKENIZER_FILE, NEW_TOKENIZER_FILE)
-  # TOKENIZER_FILE = NEW_TOKENIZER_FILE # vocab.json file
-
-  if custom_model:
-    if os.path.isfile(custom_model) and custom_model.endswith('.pth'):
-        XTTS_CHECKPOINT = custom_model
-        print(f" > Loading custom model: {XTTS_CHECKPOINT}")
-    else:
-        raise ValueError(f"Error: The specified custom model is not a valid .pth file: {custom_model}")
-
+  print("Setting up model arguments...")
   model_args = GPTArgs(
     max_conditioning_length=132300,  # 6 secs
     min_conditioning_length=66150,  # 3 secs   or 11025 for 0.5sec
@@ -182,13 +364,14 @@ def train_gpt(metadatas, num_epochs=100, batch_size=3, grad_acumm=84, output_pat
 
   model = GPTTrainer.init_from_config(config)
 
+  print("Loading datasets...")
   train_samples, eval_samples = load_tts_samples(
     DATASETS_CONFIG_LIST,
     eval_split=True,
     eval_split_max_size=config.eval_split_max_size,
     eval_split_size=config.eval_split_size,
   )
-
+  print(f" > Loaded {len(train_samples)} training samples and {len(eval_samples)} evaluation samples.")
 
   trainer = Trainer(
     TrainerArgs(
@@ -198,14 +381,17 @@ def train_gpt(metadatas, num_epochs=100, batch_size=3, grad_acumm=84, output_pat
       grad_accum_steps=GRAD_ACUMM_STEPS,
     ),
     config,
-    output_path=OUT_PATH, #os.path.join(output_path, "run", "training")
+    output_path=OUT_PATH,
     model=model,
     train_samples=train_samples,
     eval_samples=eval_samples,
   )
+
+  print("Starting training...")
   trainer.fit()
   print("Training finished!")
 
+  print("Saving final model...")
   trainer.save_checkpoint(
     os.path.join(OUT_PATH, "final_model.pth"),
     config=config,
@@ -214,11 +400,13 @@ def train_gpt(metadatas, num_epochs=100, batch_size=3, grad_acumm=84, output_pat
     xtts_checkpoint=XTTS_CHECKPOINT,
   )
 
+  print("Saving configuration...")
   CONFIG_PATH = os.path.join(OUT_PATH, "config.json")
   inference_config = XttsConfig()
   inference_config.model_args = config.model_args  # Copy model args from training
   inference_config.audio = config.audio
   inference_config.save_json(CONFIG_PATH)
+  print(f"Configuration saved to {CONFIG_PATH} and model checkpoint saved to {os.path.join(OUT_PATH, 'final_model.pth')}.")
 
   # get the longest text audio file to use as speaker reference
   samples_len = [len(item["text"].split(" ")) for item in train_samples] # type: ignore
@@ -283,7 +471,16 @@ def inference(xtts_checkpoint, xtts_config, xtts_vocab, tts_text, speaker_audio_
   )
 
   import nltk
-  nltk.download('punkt') # Run once
+  from nltk.data import find
+
+  try:
+    find('tokenizers/punkt')
+  except LookupError:
+    print("NLTK 'punkt' tokenizer not found. downloading it now... (you can also download it manually using \"python -c \"import nltk; nltk.download('punkt')\"\")")
+    nltk.download('punkt')
+    print("NLTK 'punkt' tokenizer downloaded successfully.")
+    pass
+
   from nltk.tokenize import sent_tokenize
 
   tts_texts = sent_tokenize(tts_text)
@@ -296,11 +493,11 @@ def inference(xtts_checkpoint, xtts_config, xtts_vocab, tts_text, speaker_audio_
       language=lang,
       gpt_cond_latent=gpt_cond_latent,
       speaker_embedding=speaker_embedding,
-      temperature=0.1,
-      length_penalty=1.0,
-      repetition_penalty=10.0,
-      top_k=10,
-      top_p=0.3,
+      temperature=float(XTTS_MODEL.config.temperature), # default 0.1
+      length_penalty=float(XTTS_MODEL.config.length_penalty), # default 1.0
+      repetition_penalty=float(XTTS_MODEL.config.repetition_penalty), # default 10.0
+      top_k=int(XTTS_MODEL.config.top_k), # default 10
+      top_p=float(XTTS_MODEL.config.top_p), # default 0.3
     )
     wav_chunks.append(torch.tensor(wav_chunk["wav"]))
   print("Inference successful!")
@@ -333,8 +530,38 @@ def create_xtts_trainer_parser():
 
 if __name__ == "__main__":
   parser = create_xtts_trainer_parser()
+  parser.add_argument("--metadata_path", type=str, required=True, help="Path to a single metadata file for tokenizer training.")
+  parser.add_argument("--language", type=str, required=True, help="Language code for the new language (e.g., 'mt').")
+  parser.add_argument("--extended_vocab_size", type=int, default=2000, help="Vocabulary size for the new tokenizer.")
+  
   args = parser.parse_args()
 
+  # Step 1: Download the base XTTS model files.
+  print("Step 1: Downloading XTTS base model files.")
+  download(
+    output_path=args.output_path,
+    version=args.version
+  )
+  
+  # Step 2: Extend the tokenizer for the new language.
+  print("Step 2: Extending the XTTS tokenizer with the new language.")
+  extend_tokenizer(
+    output_path=args.output_path,
+    metadata_path=args.metadata_path, #datasets/metadata_train.csv
+    language=args.language,
+    extended_vocab_size=args.extended_vocab_size #2000
+  )
+  
+  # Step 3: Adjust the config file to include the new language.
+  print("Step 3: Adjusting the config file.")
+  adjust_config(
+    output_path=args.output_path,
+    version=args.version,
+    language=args.language
+  )
+
+  # Step 4: Start the training process with the extended tokenizer and updated config.
+  print("Step 4: Starting GPT training.")
   xtts_checkpoint, xtts_vocab, config, trainer_out_path, speaker_ref = train_gpt(
     metadatas=args.metadatas,
     output_path=args.output_path,
@@ -347,7 +574,8 @@ if __name__ == "__main__":
     max_audio_length=args.max_audio_length,
     save_step=args.save_step
   )
-
+  
+  print(f"Checkpoint saved in dir: {trainer_out_path}")
   print(f"Checkpoint saved in dir: {trainer_out_path}")
 
 
@@ -376,6 +604,20 @@ if __name__ == "__main__":
 
 
 # ========================== CLI ==========================
+#Prepare the environment:
+# python -m venv venv
+# source venv/bin/activate  # On Windows: venv\Scripts\activate
+# pip install torch torchaudio --index-url https://download.pytorch.org/whl/cu121
+# pip install git+https://github.com/coqui-ai/TTS.git@dev
+# pip install -r requirements.txt
+
+# Download NLTK sentence tokenizer data
+# python -c "import nltk; nltk.download('punkt')"
+# XTTS uses spacy for some languages. Even if not "mt",
+# it's good practice to have the english model as a fallback.
+# python -m spacy download en_core_web_sm
+
+
 # CUDA_VISIBLE_DEVICES=0 python maltese_xtts.py \
 # --output_path checkpoints/ \
 # --metadatas datasets-1/metadata_train.csv,datasets-1/metadata_eval.csv,mt datasets-2/metadata_train.csv,datasets-2/metadata_eval.csv,mt \
@@ -388,4 +630,18 @@ if __name__ == "__main__":
 # --lr 5e-6 \
 # --save_step 10000
 
-# Based on https://github.com/daswer123/xtts-webui/blob/main/scripts/utils/gpt_train.py & https://github.com/anhnh2002/XTTSv2-Finetuning-for-New-Languages/blob/main/train_gpt_xtts.py
+
+
+
+# Phonetic transcription
+# A rule-based script to transcribe Maltese text into IPA notation. An example is shown below.
+
+# >> from masri.transcribe.g2p import text2phon
+# >> print(text2phon("Ilbieraħ mort s'Għawdex"))
+# ɪlbɪːrɐh mɔrt sɐʊdɛʃ
+# Numbers to words
+# An extension of num2words for the Maltese language. An example is shown below.
+
+# >> from masri.transcribe.num2text import num2text
+# >> print(num2text(301000))
+# tliet mitt elf u  elf
