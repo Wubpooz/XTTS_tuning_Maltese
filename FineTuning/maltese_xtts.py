@@ -125,13 +125,17 @@ def download(output_path: str, version: str = "main", custom_model: str = "", cu
       raise ValueError(f"Error: The specified custom model is not a valid .pth file: {custom_model}")
     
 
-  if not os.path.isfile(TOKENIZER_FILE) or not os.path.isfile(XTTS_CHECKPOINT):
-    print(f" > Downloading XTTS v{version} files!")
-    if not os.path.isfile(XTTS_CHECKPOINT):
-      ModelManager._download_model_files([TOKENIZER_FILE_LINK, XTTS_CONFIG_LINK, XTTS_CHECKPOINT_LINK], output_path, progress_bar=True) # private API
-    else:
-      ModelManager._download_model_files([TOKENIZER_FILE_LINK, XTTS_CONFIG_LINK], output_path, progress_bar=True) # don't download again if the checkpoint exists or when using a custom model
-
+  print(f" > Downloading XTTS v{version} files!")
+  if not os.path.isfile(XTTS_CHECKPOINT):  # don't download again if the checkpoint exists or when using a custom model
+    print(" > Downloading XTTS checkpoint...")
+    ModelManager._download_model_files([XTTS_CHECKPOINT_LINK], output_path, progress_bar=True) # private API
+  if not os.path.isfile(TOKENIZER_FILE):
+    print(" > Downloading XTTS tokenizer...")
+    ModelManager._download_model_files([TOKENIZER_FILE_LINK], output_path, progress_bar=True)
+  if not os.path.isfile(XTTS_CONFIG_LINK):
+    print(" > Downloading XTTS config file...")
+    ModelManager._download_model_files([XTTS_CONFIG_LINK], output_path, progress_bar=True)
+  print(" > XTTS model files downloaded successfully!")
 
   # if useful, can transfer files to ready folder
   # READY_MODEL_PATH = os.path.join(output_path,"ready")
