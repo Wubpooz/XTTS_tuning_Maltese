@@ -1,5 +1,6 @@
-#https://github.com/daswer123/xtts-webui/blob/main/scripts/utils/gpt_train.py & https://github.com/anhnh2002/XTTSv2-Finetuning-for-New-Languages/blob/main/train_gpt_xtts.pyZ
+# Based on https://github.com/daswer123/xtts-webui/blob/main/scripts/utils/gpt_train.py & https://github.com/anhnh2002/XTTSv2-Finetuning-for-New-Languages/blob/main/train_gpt_xtts.py
 
+# ========================== CLI ==========================
 # CUDA_VISIBLE_DEVICES=0 python train_gpt_xtts.py \
 # --output_path checkpoints/ \
 # --metadatas datasets-1/metadata_train.csv,datasets-1/metadata_eval.csv,vi datasets-2/metadata_train.csv,datasets-2/metadata_eval.csv,vi \
@@ -13,65 +14,68 @@
 # --save_step 50000
 
 
-# import torch
-# import torchaudio
-# from tqdm import tqdm
-# from underthesea import sent_tokenize
+# ========================== Code ==========================
+import torch
+import torchaudio
+from tqdm import tqdm
+from underthesea import sent_tokenize
+from IPython.display import Audio
 
-# from TTS.tts.configs.xtts_config import XttsConfig
-# from TTS.tts.models.xtts import Xtts
+from TTS.tts.configs.xtts_config import XttsConfig
+from TTS.tts.models.xtts import Xtts
 
-# # Device configuration
-# device = "cuda:0" if torch.cuda.is_available() else "cpu"
+def inference():
+  xtts_checkpoint = "checkpoints/path/to/model.pth"
+  xtts_config = "checkpoints/path/to/config.json"
+  xtts_vocab = "checkpoints/path/to/vocab.json"
 
-# # Model paths
-# xtts_checkpoint = "checkpoints/GPT_XTTS_FT-August-30-2024_08+19AM-6a6b942/best_model_99875.pth"
-# xtts_config = "checkpoints/GPT_XTTS_FT-August-30-2024_08+19AM-6a6b942/config.json"
-# xtts_vocab = "checkpoints/XTTS_v2.0_original_model_files/vocab.json"
+  tts_text = "Text"
+  speaker_audio_file = "ref.wav"
+  lang = "mt"
 
-# # Load model
-# config = XttsConfig()
-# config.load_json(xtts_config)
-# XTTS_MODEL = Xtts.init_from_config(config)
-# XTTS_MODEL.load_checkpoint(config, checkpoint_path=xtts_checkpoint, vocab_path=xtts_vocab, use_deepspeed=False)
-# XTTS_MODEL.to(device)
+  device = "cuda:0" if torch.cuda.is_available() else "cpu"
 
-# print("Model loaded successfully!")
+  config = XttsConfig()
+  print("Loading config...")
+  config.load_json(xtts_config)
+  print("Config Loaded.")
+  print("Initing model...")
+  XTTS_MODEL = Xtts.init_from_config(config)
+  print("Model Init, loadign checkpoint...")
+  XTTS_MODEL.load_checkpoint(config, checkpoint_path=xtts_checkpoint, vocab_path=xtts_vocab, use_deepspeed=False) #True for acceleration
+  XTTS_MODEL.to(device)
+  print("Model loaded successfully!")
 
-# # Inference
-# tts_text = "Good to see you."
-# speaker_audio_file = "ref.wav"
-# lang = "vi"
 
-# gpt_cond_latent, speaker_embedding = XTTS_MODEL.get_conditioning_latents(
-#   audio_path=speaker_audio_file,
-#   gpt_cond_len=XTTS_MODEL.config.gpt_cond_len,
-#   max_ref_length=XTTS_MODEL.config.max_ref_len,
-#   sound_norm_refs=XTTS_MODEL.config.sound_norm_refs,
-# )
+  gpt_cond_latent, speaker_embedding = XTTS_MODEL.get_conditioning_latents(
+    audio_path=speaker_audio_file,
+    gpt_cond_len=XTTS_MODEL.config.gpt_cond_len, # type: ignore
+    max_ref_length=XTTS_MODEL.config.max_ref_len, # type: ignore
+    sound_norm_refs=XTTS_MODEL.config.sound_norm_refs, # type: ignore
+  )
 
-# tts_texts = sent_tokenize(tts_text)
+  tts_texts = sent_tokenize(tts_text)
 
-# wav_chunks = []
-# for text in tqdm(tts_texts):
-#   wav_chunk = XTTS_MODEL.inference(
-#     text=text,
-#     language=lang,
-#     gpt_cond_latent=gpt_cond_latent,
-#     speaker_embedding=speaker_embedding,
-#     temperature=0.1,
-#     length_penalty=1.0,
-#     repetition_penalty=10.0,
-#     top_k=10,
-#     top_p=0.3,
-#   )
-#   wav_chunks.append(torch.tensor(wav_chunk["wav"]))
+  wav_chunks = []
+  print("Infering...")
+  for text in tqdm(tts_texts):
+    wav_chunk = XTTS_MODEL.inference(
+      text=text,
+      language=lang,
+      gpt_cond_latent=gpt_cond_latent,
+      speaker_embedding=speaker_embedding,
+      temperature=0.1,
+      length_penalty=1.0,
+      repetition_penalty=10.0,
+      top_k=10,
+      top_p=0.3,
+    )
+    wav_chunks.append(torch.tensor(wav_chunk["wav"]))
+  print("Inference successful!")
 
-# out_wav = torch.cat(wav_chunks, dim=0).unsqueeze(0).cpu()
+  out_wav = torch.cat(wav_chunks, dim=0).unsqueeze(0).cpu()
+  Audio(out_wav, rate=24000) # Play audio (for Jupyter Notebook)
 
-# # Play audio (for Jupyter Notebook)
-# from IPython.display import Audio
-# Audio(out_wav, rate=24000)
 
 
 
@@ -89,22 +93,6 @@ from TTS.utils.manage import ModelManager
 import shutil
 
 import argparse
-
-def create_xtts_trainer_parser():
-  parser = argparse.ArgumentParser(description="Arguments for XTTS Trainer")
-
-  parser.add_argument("--output_path", type=str, required=True, help="Path to pretrained + checkpoint model")
-  parser.add_argument("--metadatas", nargs='+', type=str, required=True, help="train_csv_path,eval_csv_path,language")
-  parser.add_argument("--num_epochs", type=int, default=1, help="Number of epochs")
-  parser.add_argument("--batch_size", type=int, default=1, help="Mini batch size")
-  parser.add_argument("--grad_acumm", type=int, default=1, help="Grad accumulation steps")
-  parser.add_argument("--max_audio_length", type=int, default=255995, help="Max audio length")
-  parser.add_argument("--max_text_length", type=int, default=200, help="Max text length")
-  parser.add_argument("--weight_decay", type=float, default=1e-2, help="Weight decay")
-  parser.add_argument("--lr", type=float, default=5e-6, help="Learning rate")
-  parser.add_argument("--save_step", type=int, default=5000, help="Save step")
-
-  return parser
 
 
 def train_gpt(metadatas, num_epochs, batch_size, grad_acumm,output_path, lr=5e-06, weight_decay=1e-2, save_step=1000, custom_model="", version="main", max_text_length=200, max_audio_length=255995):
@@ -238,7 +226,7 @@ def train_gpt(metadatas, num_epochs, batch_size, grad_acumm,output_path, lr=5e-0
     run_name=RUN_NAME,
     project_name=PROJECT_NAME,
     run_description="""
-        GPT XTTS training
+        GPT XTTS fine-tuning for Maltese
         """,
     dashboard_logger=DASHBOARD_LOGGER,
     logger_uri=LOGGER_URI, # type: ignore
@@ -304,6 +292,21 @@ def train_gpt(metadatas, num_epochs, batch_size, grad_acumm,output_path, lr=5e-0
 
   return XTTS_SPEAKER_FILE,XTTS_CONFIG_FILE, XTTS_CHECKPOINT, TOKENIZER_FILE, trainer_out_path, speaker_ref
 
+
+# For GUI
+def create_xtts_trainer_parser():
+  parser = argparse.ArgumentParser(description="Arguments for XTTS Trainer")
+  parser.add_argument("--output_path", type=str, required=True, help="Path to pretrained + checkpoint model")
+  parser.add_argument("--metadatas", nargs='+', type=str, required=True, help="train_csv_path,eval_csv_path,language")
+  parser.add_argument("--num_epochs", type=int, default=1, help="Number of epochs")
+  parser.add_argument("--batch_size", type=int, default=1, help="Mini batch size")
+  parser.add_argument("--grad_acumm", type=int, default=1, help="Grad accumulation steps")
+  parser.add_argument("--max_audio_length", type=int, default=255995, help="Max audio length")
+  parser.add_argument("--max_text_length", type=int, default=200, help="Max text length")
+  parser.add_argument("--weight_decay", type=float, default=1e-2, help="Weight decay")
+  parser.add_argument("--lr", type=float, default=5e-6, help="Learning rate")
+  parser.add_argument("--save_step", type=int, default=5000, help="Save step")
+  return parser
 
 
 if __name__ == "__main__":
