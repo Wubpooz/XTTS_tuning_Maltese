@@ -34,6 +34,13 @@ ipython
 
 
 
+datasets>=2.12.0  # For dataset handling
+huggingface_hub>=0.27.0  # For model and dataset management
+
+
+hf_xet # for faster downloading of datasets and models
+
+
 
 
 
